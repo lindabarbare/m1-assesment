@@ -57,6 +57,24 @@ def test_withdraw_not_allowed_status(client, make_submission, status):
     assert "WITHDRAW" not in actions
 
 
+def test_withdraw_forwarded_says_why_without_institution(client, make_submission):
+    submission_id = make_submission("FORWARDED")
+
+    error = withdraw(client, submission_id).json()["error"]
+
+    assert error == {
+        "code": "INVALID_STATE",
+        "message": "Submission has been forwarded to another institution",
+    }
+
+
+@pytest.mark.parametrize("status", ["ANSWERED", "WITHDRAWN"])
+def test_withdraw_other_states_keep_generic_message(client, make_submission, status):
+    submission_id = make_submission(status)
+    message = withdraw(client, submission_id).json()["error"]["message"]
+    assert message == "Action not allowed in the current status"
+
+
 def test_withdraw_twice_returns_409(client, make_submission):
     submission_id = make_submission()
     assert withdraw(client, submission_id).status_code == 200

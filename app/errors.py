@@ -9,8 +9,14 @@ class SubmissionNotFound(Exception):
     pass
 
 
+INVALID_STATE_MESSAGE = "Action not allowed in the current status"
+FORWARDED_MESSAGE = "Submission has been forwarded to another institution"
+
+
 class InvalidState(Exception):
-    pass
+    def __init__(self, message: str = INVALID_STATE_MESSAGE):
+        super().__init__(message)
+        self.message = message
 
 
 def _field(error: dict) -> str:
@@ -51,9 +57,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(InvalidState)
     async def invalid_state(request: Request, exc: InvalidState):
-        return error_response(
-            409, "INVALID_STATE", "Action not allowed in the current status"
-        )
+        return error_response(409, "INVALID_STATE", exc.message)
 
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception):

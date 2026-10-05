@@ -11,7 +11,12 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import clock, omd_client, storage
-from app.errors import InvalidState, SubmissionNotFound, register_error_handlers
+from app.errors import (
+    FORWARDED_MESSAGE,
+    InvalidState,
+    SubmissionNotFound,
+    register_error_handlers,
+)
 from app.models import (
     AuditEntry,
     Error,
@@ -37,7 +42,7 @@ TOPIC_NAMES = {
     Topic.PARKS: "Parki un skvēri",
     Topic.OTHER: "Cits",
 }
-# CR-A: FORWARDED nav atļauts (PĪ lēmums vēl atvērts, sk. tracker/CR-A.md).
+# CR-A: FORWARDED nav atļauts (1. variants; PĪ lēmums jāieraksta tracker/CR-A.md).
 WITHDRAWABLE = (SubmissionStatus.RECEIVED.value, SubmissionStatus.IN_PROGRESS.value)
 REPLY_DAYS = 30  # Vienkāršots termiņš: 30 kalendāra dienas
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
@@ -180,6 +185,9 @@ def withdraw_submission(submission_id: str, request: WithdrawRequest) -> Submiss
         request.reason,
     )
     if not changed:
+        # Iestādi nenosaucam: autentifikācijas nav, ID ir secīgi.
+        if storage.get(submission_id)["status"] == SubmissionStatus.FORWARDED.value:
+            raise InvalidState(FORWARDED_MESSAGE)
         raise InvalidState()
     return Submission(**storage.get(submission_id))
 

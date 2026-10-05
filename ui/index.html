@@ -45,6 +45,7 @@
     dd { margin: 0; }
     footer { font-size: 0.8rem; color: #555; text-align: center; padding: 16px; }
     a { color: var(--navy); }
+    h2 { margin: 0; font-size: 1.1rem; color: var(--navy); }
   </style>
 </head>
 <body>
@@ -90,6 +91,20 @@
       <button type="submit" id="submit">Iesniegt</button>
       <div id="message" aria-live="polite"></div>
     </form>
+
+    <form id="withdraw-form" class="card" novalidate>
+      <h2>Atsaukt iesniegumu</h2>
+      <label for="withdraw-id">Iesnieguma numurs</label>
+      <input id="withdraw-id" name="id" autocomplete="off" placeholder="IES-2026-000001">
+      <div class="field-error" data-for="withdraw-id"></div>
+
+      <label for="reason">Iemesls (10–500 rakstzīmes)</label>
+      <textarea id="reason" name="reason"></textarea>
+      <div class="field-error" data-for="reason"></div>
+
+      <button type="submit" id="withdraw-submit">Atsaukt</button>
+      <div id="withdraw-message" aria-live="polite"></div>
+    </form>
   </main>
 
   <footer>
@@ -122,6 +137,16 @@
       E_ADDRESS: "E-adrese",
       PENDING_CHANNEL_CHECK: "Kanāls jāpārbauda",
     };
+
+    // CR-A: teksts pēc API kļūdas. Iestādi nenosaucam.
+    const WITHDRAW_ERROR_TEXT = {
+      VALIDATION_ERROR: "Pārbaudiet iemeslu: tam jābūt 10–500 rakstzīmes garam.",
+      NOT_FOUND: "Iesniegums ar šādu numuru nav atrasts.",
+      INVALID_STATE: "Iesniegumu pašreizējā statusā nevar atsaukt, piemēram, ja uz to jau ir atbildēts vai tas jau ir atsaukts.",
+    };
+    const FORWARDED_TEXT =
+      "Iesniegumu nevar atsaukt, jo tas ir pārsūtīts citai iestādei. Lūdzu, sazinieties ar pašvaldības klientu centru.";
+    const FORWARDED_MESSAGE = "Submission has been forwarded to another institution";
 
     const form = document.getElementById("submission-form");
     const message = document.getElementById("message");
@@ -162,8 +187,8 @@
     }
 
     function clearErrors() {
-      document.querySelectorAll(".field-error").forEach((el) => (el.textContent = ""));
-      document.querySelectorAll(".invalid").forEach((el) => el.classList.remove("invalid"));
+      form.querySelectorAll(".field-error").forEach((el) => (el.textContent = ""));
+      form.querySelectorAll(".invalid").forEach((el) => el.classList.remove("invalid"));
       message.innerHTML = "";
     }
 
@@ -236,6 +261,74 @@
         message.textContent = "Neizdevās sazināties ar serveri.";
       } finally {
         submitButton.disabled = false;
+      }
+    });
+
+    const withdrawForm = document.getElementById("withdraw-form");
+    const withdrawMessage = document.getElementById("withdraw-message");
+    const withdrawButton = document.getElementById("withdraw-submit");
+
+    function clearWithdrawErrors() {
+      withdrawForm.querySelectorAll(".field-error").forEach((el) => (el.textContent = ""));
+      withdrawForm.querySelectorAll(".invalid").forEach((el) => el.classList.remove("invalid"));
+      withdrawMessage.innerHTML = "";
+    }
+
+    function withdrawErrorText(status, error) {
+      if (error.code === "INVALID_STATE" && error.message === FORWARDED_MESSAGE) {
+        return FORWARDED_TEXT;
+      }
+      if (WITHDRAW_ERROR_TEXT[error.code]) return WITHDRAW_ERROR_TEXT[error.code];
+      return `Iesniegumu neizdevās atsaukt (HTTP ${status}${error.code ? ", " + error.code : ""}).`;
+    }
+
+    withdrawForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearWithdrawErrors();
+      const id = document.getElementById("withdraw-id").value.trim();
+      if (!id) {
+        // Numurs ir daļa no adreses, bez tā pieprasījumu nevar nosūtīt.
+        withdrawForm.querySelector('[data-for="withdraw-id"]').textContent = ISSUE_TEXT.REQUIRED;
+        document.getElementById("withdraw-id").classList.add("invalid");
+        return;
+      }
+      const reason = document.getElementById("reason").value;
+      // Tukšu iemeslu nesūtām: API pats pasaka, ka tas trūkst.
+      const payload = reason === "" ? {} : { reason };
+      withdrawButton.disabled = true;
+      try {
+        const response = await fetch(`/submissions/${encodeURIComponent(id)}/withdraw`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        let body = null;
+        try { body = await response.json(); } catch (e) { /* nav JSON */ }
+        if (response.status === 200) {
+          withdrawMessage.className = "message ok";
+          withdrawMessage.innerHTML = `
+            <strong>Iesniegums atsaukts</strong>
+            <dl>
+              <dt>Numurs</dt><dd>${escapeHtml(body.id)}</dd>
+              <dt>Statuss</dt><dd>${escapeHtml(STATUS_TEXT[body.status] || body.status)}</dd>
+            </dl>`;
+          return;
+        }
+        const error = (body && body.error) || {};
+        for (const detail of error.details || []) {
+          const target = withdrawForm.querySelector(`.field-error[data-for="${detail.field}"]`);
+          if (target) {
+            target.textContent = ISSUE_TEXT[detail.issue] || detail.issue;
+            document.getElementById(detail.field)?.classList.add("invalid");
+          }
+        }
+        withdrawMessage.className = "message error";
+        withdrawMessage.textContent = withdrawErrorText(response.status, error);
+      } catch (error) {
+        withdrawMessage.className = "message error";
+        withdrawMessage.textContent = "Neizdevās sazināties ar serveri.";
+      } finally {
+        withdrawButton.disabled = false;
       }
     });
 
