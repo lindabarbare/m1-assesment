@@ -1,8 +1,14 @@
 """Kļūdu atbildes pēc līguma (API contract) vienotās kļūdu shēmas."""
 
+import logging
+
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+logger = logging.getLogger("ezermala.errors")
 
 
 class SubmissionNotFound(Exception):
@@ -59,6 +65,19 @@ def register_error_handlers(app: FastAPI) -> None:
     async def invalid_state(request: Request, exc: InvalidState):
         return error_response(409, "INVALID_STATE", exc.message)
 
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException):
+        # Ķermeni nevar nolasīt (piemēram, bojāti baiti): līguma kļūdu shēma.
+        if exc.status_code == 400:
+            details = [{"field": "request", "issue": "INVALID_FORMAT"}]
+            return error_response(
+                400, "VALIDATION_ERROR", "Request validation failed", details
+            )
+        return await http_exception_handler(request, exc)
+
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception):
-        return error_response(500, "INTERNAL_ERROR", str(exc))
+        # Atbildē nav iekšējās informācijas. Žurnālā tikai ceļš un kļūdas tips,
+        # jo kļūdas tekstā var būt dati.
+        logger.error("Neparedzēta kļūda: %s %s", request.url.path, type(exc).__name__)
+        return error_response(500, "INTERNAL_ERROR", "Internal server error")
