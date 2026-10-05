@@ -242,8 +242,40 @@ def update_status(submission_id: str, status: str) -> dict | None:
     if cursor.rowcount == 0:
         return None
     record = get(submission_id)
-    logger.info("Statuss mainīts: %s", record)
+    # Žurnālā tikai ID un statuss: ierakstā ir personas dati.
+    logger.info("Statuss mainīts: %s -> %s", submission_id, status)
     return record
+
+
+def transition(
+    submission_id: str,
+    allowed: tuple[str, ...],
+    status: str,
+    action: str,
+    detail: str | None = None,
+) -> bool:
+    """Maina statusu un pieraksta auditu vienā darbībā.
+
+    Atgriež False, ja pašreizējais statuss nav starp atļautajiem.
+    """
+    # SQL tekstā ir tikai "?" vietturi, vērtības padod atsevišķi.
+    placeholders = ", ".join("?" for _ in allowed)
+    sql = (
+        f"UPDATE submissions SET status = ? WHERE id = ? AND status IN ({placeholders})"  # noqa: E501  # nosec B608
+    )
+    with _lock:
+        cursor = _conn.execute(
+            sql,
+            (status, submission_id, *allowed),
+        )
+        if cursor.rowcount == 0:
+            return False
+        _conn.execute(
+            "INSERT INTO audit (submissionId, at, action, detail) VALUES (?, ?, ?, ?)",
+            (submission_id, clock.now().isoformat(), action, detail),
+        )
+    logger.info("Statuss mainīts: %s -> %s", submission_id, status)
+    return True
 
 
 def update_due_date(submission_id: str, due_date: str) -> dict:
