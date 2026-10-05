@@ -264,16 +264,23 @@ def transition(
         f"UPDATE submissions SET status = ? WHERE id = ? AND status IN ({placeholders})"  # noqa: E501  # nosec B608
     )
     with _lock:
-        cursor = _conn.execute(
-            sql,
-            (status, submission_id, *allowed),
-        )
-        if cursor.rowcount == 0:
-            return False
-        _conn.execute(
-            "INSERT INTO audit (submissionId, at, action, detail) VALUES (?, ?, ?, ?)",
-            (submission_id, clock.now().isoformat(), action, detail),
-        )
+        # SAVEPOINT: ja audita ieraksts neizdodas, atceļ arī statusa maiņu.
+        _conn.execute("SAVEPOINT transition")
+        try:
+            cursor = _conn.execute(sql, (status, submission_id, *allowed))
+            if cursor.rowcount == 0:
+                _conn.execute("RELEASE transition")
+                return False
+            _conn.execute(
+                "INSERT INTO audit (submissionId, at, action, detail) "
+                "VALUES (?, ?, ?, ?)",
+                (submission_id, clock.now().isoformat(), action, detail),
+            )
+        except Exception:
+            _conn.execute("ROLLBACK TO transition")
+            _conn.execute("RELEASE transition")
+            raise
+        _conn.execute("RELEASE transition")
     logger.info("Statuss mainīts: %s -> %s", submission_id, status)
     return True
 

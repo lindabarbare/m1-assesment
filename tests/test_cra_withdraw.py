@@ -141,3 +141,36 @@ def test_withdraw_does_not_leak_personal_data(
         assert secret not in caplog.text
         for response in responses[1:]:
             assert secret not in response.text
+
+
+def test_withdraw_rolls_back_status_if_audit_fails(client, make_submission):
+    submission_id = make_submission()
+
+    def broken_now():
+        raise RuntimeError("clock failed")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("app.clock.now", broken_now)
+        with pytest.raises(RuntimeError):
+            storage.transition(
+                submission_id, ("RECEIVED",), "WITHDRAWN", "WITHDRAW", REASON
+            )
+
+    assert client.get(f"/submissions/{submission_id}").json()["status"] == "RECEIVED"
+    actions = [
+        e["action"] for e in client.get(f"/submissions/{submission_id}/audit").json()
+    ]
+    assert actions == ["CREATE"]
+
+
+def test_update_status_log_has_no_personal_data(
+    client, make_submission, valid_payload, caplog
+):
+    submission_id = make_submission()
+    caplog.set_level(logging.DEBUG)
+
+    storage.update_status(submission_id, "IN_PROGRESS")
+
+    assert submission_id in caplog.text
+    for field in ("personalCode", "fullName", "email", "body"):
+        assert valid_payload[field] not in caplog.text
