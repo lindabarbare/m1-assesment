@@ -4,7 +4,7 @@ SHELL := /bin/bash
 OMD_API_TOKEN ?= macibu-tokens-tikai-imitacijai
 export OMD_API_TOKEN
 
-.PHONY: help run mock test fmt check
+.PHONY: help run mock test sabotage fmt check
 
 help: ## Parāda komandas
 	@awk -F ':.*## ' '/^[a-zA-Z_%-]+:.*## / {printf "  make %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -17,6 +17,9 @@ mock: ## Palaiž OMD reģistra imitāciju (ports 8001)
 
 test: ## Palaiž testus
 	python -m pytest -q
+
+sabotage: ## Sabojā kodu pa vienai vietai un parāda, kurš tests kļūst sarkans
+	python scripts/sabotage.py
 
 fmt: ## Formatē kodu un izlabo stila piezīmes
 	ruff format .
